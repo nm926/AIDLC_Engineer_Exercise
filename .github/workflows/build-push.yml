@@ -1,0 +1,142 @@
+name: Build & Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-push.yml'
+
+env:
+  AWS_REGION: ap-south-1
+  REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+  build-fraud-detection:
+    name: Build Fraud Detection Service
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      tag: ${{ steps.image.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      - name: Build, tag, and push image to Amazon ECR
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_REPO_NAME: fraud-detection
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG -f app/Dockerfile app/
+          docker tag $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+          docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+          
+          echo "image=$ECR_REGISTRY/$IMAGE_REPO_NAME" >> $GITHUB_OUTPUT
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          
+          echo "✓ Built and pushed fraud-detection:$IMAGE_TAG"
+      
+      - name: Image scan
+        run: |
+          aws ecr start-image-scan --repository-name fraud-detection --image-id imageTag=${{ steps.image.outputs.tag }}
+          echo "Image scan initiated"
+
+  build-frontend:
+    name: Build Frontend Service
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      tag: ${{ steps.image.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      - name: Build, tag, and push image to Amazon ECR
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_REPO_NAME: app-frontend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG -f app/frontend/Dockerfile app/frontend/
+          docker tag $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+          docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+          
+          echo "image=$ECR_REGISTRY/$IMAGE_REPO_NAME" >> $GITHUB_OUTPUT
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          
+          echo "✓ Built and pushed app-frontend:$IMAGE_TAG"
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-fraud-detection, build-frontend]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create Release Notes
+        id: release
+        run: |
+          VERSION="${{ github.sha }}"
+          echo "## Release ${VERSION:0:7}" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Build Information" >> RELEASE_NOTES.md
+          echo "- Build Date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> RELEASE_NOTES.md
+          echo "- Commit: ${{ github.sha }}" >> RELEASE_NOTES.md
+          echo "- Branch: ${{ github.ref }}" >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Images Built" >> RELEASE_NOTES.md
+          echo "- \`${{ needs.build-fraud-detection.outputs.image }}:${{ needs.build-fraud-detection.outputs.tag }}\`" >> RELEASE_NOTES.md
+          echo "- \`${{ needs.build-frontend.outputs.image }}:${{ needs.build-frontend.outputs.tag }}\`" >> RELEASE_NOTES.md
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: RELEASE_NOTES.md
+          tag_name: release-${{ github.sha }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Notify Build Complete
+    runs-on: ubuntu-latest
+    needs: [build-fraud-detection, build-frontend, create-release]
+    if: always()
+    steps:
+      - name: Build Summary
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "                  BUILD COMPLETE"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "Images built:"
+          echo "  • ${{ needs.build-fraud-detection.outputs.image }}:${{ needs.build-fraud-detection.outputs.tag }}"
+          echo "  • ${{ needs.build-frontend.outputs.image }}:${{ needs.build-frontend.outputs.tag }}"
+          echo ""
+          echo "Ready for deployment to staging/production"
+          echo "═══════════════════════════════════════════════════════════════"

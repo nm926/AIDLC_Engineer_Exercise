@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: application
+  labels:
+    app: load-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: load-generator
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              pip install --no-cache-dir requests==2.31.0 &&
+              python /app/load_generator.py
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: SERVICE_URL
+              value: "http://fraud-detection.application.svc.cluster.local"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: load-gen-code
+              mountPath: /app/load_generator.py
+              subPath: load_generator.py
+      volumes:
+        - name: load-gen-code
+          configMap:
+            name: load-generator-code
+            defaultMode: 0555

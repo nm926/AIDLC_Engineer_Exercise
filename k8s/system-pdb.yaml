@@ -1,0 +1,39 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns-pdb
+  namespace: kube-system
+spec:
+  # CoreDNS: Ensure at least 1 DNS resolver is always available
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: karpenter-pdb
+  namespace: karpenter
+spec:
+  # Karpenter controller: At least 1 controller pod must be running
+  # This ensures cluster can continue provisioning/consolidating nodes
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: karpenter
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vpc-cni-pdb
+  namespace: kube-system
+spec:
+  # AWS VPC CNI: Ensure network connectivity remains available
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: aws-node
+  unhealthyPodEvictionPolicy: AlwaysAllow

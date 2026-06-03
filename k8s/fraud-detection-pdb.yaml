@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fraud-detection-pdb
+  namespace: application
+  labels:
+    app: fraud-detection
+spec:
+  # minAvailable: Ensure at least 2 pods are always running
+  # Since the deployment has 3 replicas, this allows max 1 pod disruption
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: fraud-detection
+  # unhealthyPodEvictionPolicy allows evicting unhealthy pods even if it violates minAvailable
+  unhealthyPodEvictionPolicy: AlwaysAllow

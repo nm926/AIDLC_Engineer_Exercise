@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: application
+  labels:
+    app: frontend
+spec:
+  # minAvailable: Ensure at least 1 frontend pod is always running
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+  unhealthyPodEvictionPolicy: AlwaysAllow

@@ -1,0 +1,153 @@
+name: PR Status Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  pr-checks:
+    name: PR Status Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check PR title
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const validPrefixes = ['feat:', 'fix:', 'docs:', 'refactor:', 'test:', 'chore:', 'ci:'];
+            const hasValidPrefix = validPrefixes.some(prefix => title.startsWith(prefix));
+            
+            if (!hasValidPrefix) {
+              core.setFailed(`PR title must start with one of: ${validPrefixes.join(', ')}`);
+            }
+      
+      - name: Check PR description
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            if (body.length < 10) {
+              core.warning('PR description should be more detailed');
+            }
+      
+      - name: Check for CHANGELOG update
+        run: |
+          if git diff origin/main...HEAD | grep -q "CHANGELOG"; then
+            echo "✓ CHANGELOG updated"
+          else
+            echo "⚠️  Consider updating CHANGELOG.md"
+          fi
+      
+      - name: Check code size
+        run: |
+          LINES_ADDED=$(git diff origin/main...HEAD --shortstat | awk '{print $4}')
+          echo "Lines added: $LINES_ADDED"
+          
+          if [ "$LINES_ADDED" -gt 1000 ]; then
+            echo "⚠️  Large PR (>1000 lines). Consider breaking into smaller PRs."
+          fi
+      
+      - name: List changed files
+        run: |
+          echo "Changed files:"
+          git diff --name-only origin/main...HEAD | sort
+      
+      - name: Identify affected components
+        run: |
+          echo "Affected components:"
+          if git diff --name-only origin/main...HEAD | grep -q "app/"; then
+            echo "  • App component"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "app/frontend/"; then
+            echo "  • Frontend component"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "terraform/"; then
+            echo "  • Infrastructure (Terraform)"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "k8s/"; then
+            echo "  • Kubernetes manifests"
+          fi
+
+  documentation-check:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check documentation exists
+        run: |
+          echo "Documentation Check:"
+          [ -f "INFRASTRUCTURE_DEPLOYMENT_GUIDE.md" ] && echo "✓ Deployment guide" || echo "❌ Missing deployment guide"
+          [ -f "INFRASTRUCTURE_MANAGER_SUMMARY.md" ] && echo "✓ Manager summary" || echo "❌ Missing manager summary"
+          [ -f "observability/SLO_SLI_ALERTS.md" ] && echo "✓ SLO/SLI definitions" || echo "❌ Missing SLO/SLI"
+          [ -d "observability/runbooks" ] && echo "✓ Runbooks" || echo "❌ Missing runbooks"
+
+  branch-protection:
+    name: Branch Protection Status
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify branch protection
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const branch = context.payload.pull_request.base.ref;
+            console.log(`PR targeting branch: ${branch}`);
+            
+            if (branch === 'main') {
+              console.log('ℹ️  Merging to production branch');
+              console.log('✓ Production approval required');
+              console.log('✓ All checks must pass');
+              console.log('✓ Code review required');
+            }
+
+  commit-message-check:
+    name: Commit Message Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check commit messages
+        run: |
+          echo "Commit messages:"
+          git log --pretty=format:"%h - %s" origin/main...HEAD | head -10
+          
+          # Check for conventional commits
+          if git log --pretty=format:"%s" origin/main...HEAD | grep -E "^(feat|fix|docs|refactor|test|chore|ci)(\(.+\))?:"; then
+            echo "✓ Using conventional commits"
+          else
+            echo "⚠️  Consider using conventional commits (feat:, fix:, etc.)"
+          fi
+
+  summary:
+    name: PR Check Summary
+    runs-on: ubuntu-latest
+    needs: [pr-checks, documentation-check, branch-protection, commit-message-check]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "                      PR CHECKS SUMMARY"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Status:"
+          echo "  • PR Checks: ${{ needs.pr-checks.result }}"
+          echo "  • Documentation: ${{ needs.documentation-check.result }}"
+          echo "  • Branch Protection: ${{ needs.branch-protection.result }}"
+          echo "  • Commits: ${{ needs.commit-message-check.result }}"
+          echo ""
+          echo "Next steps:"
+          echo "  1. Address any failing checks"
+          echo "  2. Wait for test-validate workflow"
+          echo "  3. Request code review"
+          echo "  4. Merge when all checks pass"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"

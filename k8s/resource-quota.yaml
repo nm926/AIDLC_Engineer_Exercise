@@ -1,0 +1,134 @@
+---
+# Resource Quotas for application namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: application-quota
+  namespace: application
+spec:
+  hard:
+    # Pod limits
+    pods: "50"
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "30"
+    limits.memory: "60Gi"
+    
+    # PVC limits
+    persistentvolumeclaims: "5"
+    requests.storage: "100Gi"
+    
+    # Service limits
+    services: "20"
+    services.loadbalancers: "2"
+    services.nodeports: "5"
+
+---
+# Limit Range for individual pods
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: application-limits
+  namespace: application
+spec:
+  limits:
+    # Container limits
+    - type: Container
+      max:
+        cpu: "2"
+        memory: "2Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      maxLimitRequestRatio:
+        cpu: "4"
+        memory: "2"
+    
+    # Pod limits
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "4Gi"
+      min:
+        cpu: "20m"
+        memory: "64Mi"
+
+---
+# Resource Quotas for observability namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: observability-quota
+  namespace: observability
+spec:
+  hard:
+    pods: "100"
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "60"
+    limits.memory: "120Gi"
+    persistentvolumeclaims: "10"
+    requests.storage: "500Gi"
+
+---
+# Limit Range for observability namespace
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: observability-limits
+  namespace: observability
+spec:
+  limits:
+    - type: Container
+      max:
+        cpu: "4"
+        memory: "4Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      default:
+        cpu: "1"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "500m"
+        memory: "512Mi"
+    
+    - type: Pod
+      max:
+        cpu: "8"
+        memory: "8Gi"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+
+---
+# Pod Disruption Budget for fraud detection (high availability)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fraud-detection-pdb
+  namespace: application
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: fraud-detection
+
+---
+# Pod Disruption Budget for frontend
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: application
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

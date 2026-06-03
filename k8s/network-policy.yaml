@@ -1,0 +1,156 @@
+---
+# Network Policy for fraud detection service
+# Restricts traffic to only necessary service-to-service communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fraud-detection-network-policy
+  namespace: application
+  labels:
+    app: fraud-detection
+spec:
+  podSelector:
+    matchLabels:
+      app: fraud-detection
+  
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+    # Allow from load generator
+    - from:
+        - podSelector:
+            matchLabels:
+              app: load-generator
+      ports:
+        - protocol: TCP
+          port: 8000
+    
+    # Allow from ingress controller (external traffic)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    
+    # Allow from monitoring (Prometheus scraping)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
+  
+  egress:
+    # Allow DNS for service discovery
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    
+    # Allow to OpenTelemetry collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+          podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+    
+    # Allow to external APIs (if needed)
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+---
+# Pod Security Policy context
+apiVersion: v1
+kind: SecurityContext
+metadata:
+  name: fraud-detection-security
+---
+# Network Policy for frontend service
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-network-policy
+  namespace: application
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+  
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    
+    # Allow to fraud detection service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: fraud-detection
+      ports:
+        - protocol: TCP
+          port: 8000
+
+---
+# Network Policy for load generator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: load-generator-network-policy
+  namespace: application
+spec:
+  podSelector:
+    matchLabels:
+      app: load-generator
+  
+  policyTypes:
+    - Egress
+  
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    
+    # Allow to fraud detection service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: fraud-detection
+      ports:
+        - protocol: TCP
+          port: 8000

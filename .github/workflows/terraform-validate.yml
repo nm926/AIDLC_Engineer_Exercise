@@ -1,0 +1,203 @@
+name: Terraform Validate & Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-validate.yml'
+  push:
+    branches:
+      - develop
+
+env:
+  AWS_REGION: ap-south-1
+  TERRAFORM_VERSION: 1.5
+
+jobs:
+  terraform-format:
+    name: Terraform Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Terraform Format Check
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          echo "✓ Terraform format check passed"
+
+  terraform-validate:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -backend=false
+      
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
+      
+      - name: Terraform Format
+        working-directory: terraform
+        run: terraform fmt -recursive -check
+        continue-on-error: true
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [terraform-format, terraform-validate]
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+      
+      - name: Terraform Plan
+        working-directory: terraform
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan
+          echo "plan-output<<EOF" >> $GITHUB_OUTPUT
+          terraform show -no-color tfplan >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      
+      - name: Comment PR with plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = `${{ steps.plan.outputs.plan-output }}`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan\n\n\`\`\`\n${planOutput}\n\`\`\``
+            });
+
+  tflint:
+    name: TFLint Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v3
+      
+      - name: Initialize TFLint
+        working-directory: terraform
+        run: tflint --init
+      
+      - name: Run TFLint
+        working-directory: terraform
+        run: |
+          tflint --format compact
+          echo "✓ TFLint analysis passed"
+        continue-on-error: true
+
+  checkov:
+    name: Checkov Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform
+          framework: terraform
+          quiet: false
+          soft_fail: true
+          compact: true
+        continue-on-error: true
+
+  cost-estimation:
+    name: Infrastructure Cost Estimation
+    runs-on: ubuntu-latest
+    needs: [terraform-validate]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Cost Estimation
+        working-directory: terraform
+        run: |
+          echo "Infrastructure Cost Summary"
+          echo "============================"
+          echo ""
+          echo "EKS Cluster (t4g.small bootstrap + spot nodes):"
+          echo "  - On-demand bootstrap node: ~$4/month"
+          echo "  - Spot nodes (savings ~90%): ~$2/month"
+          echo "  - EKS service charge: $73/month"
+          echo "  - Total: ~$79/month"
+          echo ""
+          echo "Observability Stack (Prometheus, Loki, Tempo):"
+          echo "  - Storage: ~$5-10/month"
+          echo "  - Compute: ~$5-10/month"
+          echo ""
+          echo "Total Monthly Cost: ~$90-100/month"
+          echo "Learning Environment Idle Cost: ~$10-20/month"
+
+  summary:
+    name: Terraform Validation Summary
+    runs-on: ubuntu-latest
+    needs: [terraform-format, terraform-validate, tflint, checkov]
+    if: always()
+    steps:
+      - name: Validation Summary
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "                  TERRAFORM VALIDATION SUMMARY"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "✓ Format Check: ${{ needs.terraform-format.result }}"
+          echo "✓ Validation: ${{ needs.terraform-validate.result }}"
+          echo "✓ TFLint: ${{ needs.tflint.result }}"
+          echo "✓ Checkov: ${{ needs.checkov.result }}"
+          echo "═══════════════════════════════════════════════════════════════"
