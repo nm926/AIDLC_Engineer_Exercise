@@ -1,0 +1,58 @@
+# Terraform local/state artifacts
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/.terraform.tfstate.lock.info
+**/*.tfplan
+**/tfplan
+**/*.tfvars
+**/*.auto.tfvars
+
+# Python local artifacts
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.py[cod]
+
+# Node local artifacts
+**/node_modules/
+**/dist/
+
+# IDE/editor artifacts
+.vscode/
+.idea/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Secrets / credentials files
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*id_rsa*
+**/*.p12
+**/*.jks
+**/*.pfx
+**/*credentials*
+
+# Documentation (do not push)
+md_files/
+project-plan/
+
+# Shell scripts (do not push)
+*.sh
+
+# Bedrock lab (out of scope)
+bedrock-chat/
+*bedrock*
+
+# Backups / editor junk
+**/*.tar.gz
+**/*:Zone.Identifier
+**/*.backup
+**/*_2105
+**/provider.tf.backup
