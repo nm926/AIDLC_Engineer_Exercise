@@ -1,4 +1,4 @@
-# AIDLC Engineer Exercise — Payment Fraud Detection on EKS
+# AIDLC Engineer Exercise — Payment Fraud Detection
 
 AWS lab (EKS, Karpenter, observability, CI/CD) with the **main application in [`app/`](./app/)** — FastAPI payment fraud detection, React frontend, validation, and config management.
 
